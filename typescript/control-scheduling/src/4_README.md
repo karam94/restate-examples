@@ -10,6 +10,7 @@ This example demonstrates a simple charging workflow that:
 
 `npm install --global @restatedev/restate-server@latest @restatedev/restate@latest`
 `restate-server`
+`npm run example-4`
 `restate deployments register http://localhost:9080`
 
 ### 1. Start the Workflow

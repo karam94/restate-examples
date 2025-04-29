@@ -93,3 +93,6 @@ curl -X POST http://localhost:8080/charging/vehicle-123/validate \
 3. Check the workflow status:
 curl http://localhost:8080/restate/workflow/charging/vehicle-123/attach
 */ 
+
+//  -H 'idempotency-key: ad5472esg4dsg525dssdfa5loi' \ 
+// Could be added to the request to make it idempotent (prevents duplicate runs)
