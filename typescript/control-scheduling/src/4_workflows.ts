@@ -5,12 +5,20 @@ import * as restateClients from "@restatedev/restate-sdk-clients";
 interface StartChargingEvent {
   deviceId: string;
   timestamp: string;
+  endTime: string;  // When charging should automatically stop
+}
+
+interface StopChargingEvent {
+  deviceId: string;
+  timestamp: string;
+  reason?: string;
 }
 
 interface ValidationEvent {
   deviceId: string;
   status: 'VALIDATED' | 'FAILED';
   timestamp: string;
+  type?: string;
 }
 
 // Stub for EventBridge event publishing
@@ -35,16 +43,56 @@ const chargingWorkflow = restate.workflow({
         await publishToEventBridge({
           type: 'START_CHARGING',
           deviceId: event.deviceId,
-          timestamp: event.timestamp
+          timestamp: event.timestamp,
+          endTime: event.endTime
         });
       });
 
       // Wait for validation event
       const validationResult = await ctx.promise<ValidationEvent>("validation");
-      
+      console.log(`Validation result: ${JSON.stringify(validationResult)}`);
       if (validationResult.status === 'VALIDATED') {
         console.log(`Charging validated for device: ${deviceId}`);
-        return { status: 'success', message: 'Charging workflow completed successfully' };
+        
+        // Calculate time until end
+        const endTime = new Date(event.endTime);
+        const now = new Date();
+        const timeUntilEnd = now.getTime() - endTime.getTime();
+        
+        if (timeUntilEnd > 0) {
+          console.log(`Waiting ${timeUntilEnd}ms until end time for device: ${deviceId}`);
+          
+          // Create a promise that will be resolved when either:
+          // 1. The end time is reached
+          // 2. A manual stop is requested
+          const stopPromise = ctx.promise<void>("stop");
+          
+          // Wait for either end time or manual stop
+          await Promise.race([
+            ctx.sleep(timeUntilEnd).then(() => {
+              console.log(`End time reached for device: ${deviceId}`);
+              return stopPromise.resolve();
+            }),
+            stopPromise
+          ]);
+          
+          // At this point, either end time was reached or manual stop was requested
+          // The stop handler will handle the actual stopping and validation
+          
+          // Wait for the workflow to complete (which happens in the stop handler)
+          await ctx.promise<void>("workflow-complete");
+          
+          return { 
+            status: 'success', 
+            message: 'Charging workflow completed successfully'
+          };
+        } else {
+          console.log(`End time already passed for device: ${deviceId}`);
+          return { 
+            status: 'failed', 
+            message: 'End time already passed'
+          };
+        }
       } else {
         console.log(`Charging validation failed for device: ${deviceId}`);
         return { status: 'failed', message: 'Charging validation failed' };
@@ -55,10 +103,58 @@ const chargingWorkflow = restate.workflow({
     validate: async (ctx: restate.WorkflowSharedContext, event: ValidationEvent) => {
       console.log(`Received validation event for device: ${event.deviceId}`);
       
-      // Resolve the promise for the workflow
-      await ctx.promise<ValidationEvent>("validation").resolve(event);
+      // Check if this is a charging or idle validation
+      const isIdleValidation = event.type === 'IDLE';
       
-      return { status: 'success', message: 'Validation event processed' };
+      // Resolve the appropriate promise for the workflow
+      if (isIdleValidation) {
+        await ctx.promise<ValidationEvent>("idle-validation").resolve(event);
+      } else {
+        await ctx.promise<ValidationEvent>("validation").resolve(event);
+      }
+    },
+
+    // TODO: Idle should be a separate workflow
+    // --- Handler for stop charging events ---
+    stop: async (ctx: restate.WorkflowSharedContext, event: StopChargingEvent) => {
+      console.log(`Received stop charging event for device: ${event.deviceId}`);
+      
+      // Publish stop charging event to EventBridge
+      await ctx.run("publish-stop-event", async () => {
+        await publishToEventBridge({
+          type: 'STOP_CHARGING',
+          deviceId: event.deviceId,
+          timestamp: event.timestamp,
+          reason: event.reason
+        });
+      });
+
+      // Resolve the stop promise to signal the run handler
+      await ctx.promise<void>("stop").resolve();
+
+      // Wait for idle validation
+      const validationResult = await ctx.promise<ValidationEvent>("idle-validation");
+      console.log(`Idle validation result: ${JSON.stringify(validationResult)}`);
+
+      if (validationResult.status === 'VALIDATED') {
+        console.log(`Idle state validated for device: ${event.deviceId}`);
+        // Signal that the workflow is complete
+        await ctx.promise<void>("workflow-complete").resolve();
+        return { 
+          status: 'success', 
+          message: 'Charging stopped and validated successfully',
+          reason: event.reason || 'No reason provided'
+        };
+      } else {
+        console.log(`Idle validation failed for device: ${event.deviceId}`);
+        // Signal that the workflow is complete
+        await ctx.promise<void>("workflow-complete").resolve();
+        return { 
+          status: 'failed', 
+          message: 'Idle validation failed',
+          reason: event.reason || 'No reason provided'
+        };
+      }
     }
   }
 });
@@ -78,7 +174,8 @@ curl -X POST http://localhost:8080/charging/vehicle-123/run/send \
   -H 'Content-Type: application/json' \
   -d '{
     "deviceId": "vehicle-123",
-    "timestamp": "2024-04-29T20:00:00Z"
+    "timestamp": "2024-04-29T20:00:00Z",
+    "endTime": "2024-04-29T21:00:00Z"
   }'
 
 2. Send a validation event:
@@ -90,7 +187,27 @@ curl -X POST http://localhost:8080/charging/vehicle-123/validate \
     "timestamp": "2024-04-29T20:01:00Z"
   }'
 
-3. Check the workflow status:
+3. Wait for end time to be reached (or manually stop charging):
+curl -X POST http://localhost:8080/charging/vehicle-123/stop \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "deviceId": "vehicle-123",
+    "timestamp": "2024-04-29T20:30:00Z",
+    "reason": "User requested stop"
+  }'
+
+  // TODO: Idle should be a separate workflow (/idle/vehicle-123/run/send)
+4. Send idle validation event:
+curl -X POST http://localhost:8080/charging/vehicle-123/validate \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "deviceId": "vehicle-123",
+    "status": "VALIDATED",
+    "timestamp": "2024-04-29T20:31:00Z",
+    "type": "IDLE"
+  }'
+
+5. Check the workflow status:
 curl http://localhost:8080/restate/workflow/charging/vehicle-123/attach
 */ 
 
