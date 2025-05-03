@@ -11,7 +11,9 @@
     "format": "prettier --ignore-path .eslintignore --write \"**/*.+(js|ts|json)\"",
     "start": "ts-node-dev --transpile-only src/index.ts",
     "example-4": "ts-node-dev --transpile-only src/import_workflow.ts",
-    "example-5": "ts-node-dev --transpile-only src/device_object.ts"
+    "example-5": "ts-node-dev --transpile-only src/device_object.ts",
+    "example-6": "ts-node-dev --transpile-only src/idle_workflow.ts",
+    "all": "npm run example-4 && npm run example-5 && npm run example-6"
   },
   "dependencies": {
     "@restatedev/restate-sdk": "^1.5.4",

@@ -1,5 +1,6 @@
 import * as restate from "@restatedev/restate-sdk";
 import * as restateClients from "@restatedev/restate-sdk-clients";
+import { IdleApi } from "./idle_workflow";
 
 interface ImportEvent {
   deviceId: string;
@@ -14,6 +15,8 @@ interface ValidationEvent {
   type?: string;
 }
 
+const IdleWorkflowObject: IdleApi = { name: "idle" };
+
 // TODO: This should be a restate service that publishes to EventBridge
 const publishToEventBridge = async (event: any) => {
   console.log('Publishing to EventBridge:', event);
@@ -25,6 +28,7 @@ const importWorkflow = restate.workflow({
   handlers: {
     run: async (ctx: restate.WorkflowContext, event: ImportEvent) => {
       const deviceId = ctx.key;
+
       console.log(`Starting charging workflow for device: ${deviceId}`);
 
       await ctx.run("publish-start-event", async () => {
@@ -39,10 +43,23 @@ const importWorkflow = restate.workflow({
       console.log(`Charging workflow started for device: ${deviceId}`);
 
       const validationResult = await ctx.promise<ValidationEvent>("validation");
+
       console.log(`Validation result: ${JSON.stringify(validationResult)}`);
 
       if (validationResult.status === 'VALIDATED') {
         console.log(`Charging validated for device: ${deviceId}`);
+        console.log(`Charging workflow waiting for end time: ${event.endTime}`);
+
+        const endTimeMs = new Date(event.endTime).getTime();
+        console.log(`End time: ${endTimeMs}`);
+        const currentTimeMs = new Date().getTime();
+        console.log(`Current time: ${currentTimeMs}`);
+        const delaySeconds = Math.max(0, Math.floor((endTimeMs - currentTimeMs) / 1000));
+
+        console.log(`Delaying for ${delaySeconds} seconds`);
+        await ctx.workflowSendClient(IdleWorkflowObject, deviceId)
+          .run({ deviceId, timestamp: event.endTime }, restate.rpc.sendOpts({ delay: delaySeconds * 1000 }));
+
         return { status: 'success', message: 'Charging workflow completed successfully' };
       } else {
         console.log(`Charging validation failed for device: ${deviceId}`);
@@ -50,12 +67,9 @@ const importWorkflow = restate.workflow({
       }
     },
 
-    // --- Handler for validation events ---
     validate: async (ctx: restate.WorkflowSharedContext, event: ValidationEvent) => {
-      console.log(`Received import validation event for device: ${event.deviceId}`);
-      console.log(event);
-      const result = ctx.promise("validation").resolve(event);
-      console.log(result);
+      console.log(`Received IMPORT validation event for device: ${event.deviceId}`);
+      ctx.promise("validation").resolve(event);
       
       return { status: 'success', message: 'Validation event processed' };
     },
@@ -64,9 +78,7 @@ const importWorkflow = restate.workflow({
 
 export type ImportApi = typeof importWorkflow;
 
-// Create an HTTP endpoint to serve our workflow
 restate.endpoint().bind(importWorkflow).listen(9080);
-
 console.log('Charging workflow service started on port 9080');
 
 /*
@@ -77,8 +89,8 @@ curl -X POST http://localhost:8080/charging/vehicle-123/run/send \
   -H 'Content-Type: application/json' \
   -d '{
     "deviceId": "device-123",
-    "timestamp": "2024-04-29T20:00:00Z",
-    "endTime": "2024-04-29T21:00:00Z"
+    "timestamp": "2025-04-29T20:00:00Z",
+    "endTime": "2025-05-29T21:00:00Z"
   }'
 
 2. Send a validation event:
@@ -87,7 +99,7 @@ curl -X POST http://localhost:8080/charging/vehicle-123/validate \
   -d '{
     "deviceId": "device-123",
     "status": "VALIDATED",
-    "timestamp": "2024-04-29T20:01:00Z"
+    "timestamp": "2025-05-29T20:01:00Z"
   }'
 
 3. Wait for end time to be reached (or manually stop charging):
