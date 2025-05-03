@@ -19,9 +19,7 @@ const deviceObject = restate.object({
       const state = await ctx.get<DeviceState>("state") ?? { status: 'IDLE' }; 
       console.log(`Starting charging workflow for device: ${deviceId}`);
 
-      const response = await
-      ctx.workflowClient(ImportWorkflowObject, `${deviceId}-${event.timestamp}`)
-      .run({ deviceId, timestamp: event.timestamp, endTime: event.endTime });
+      const response = await ctx.workflowClient(ImportWorkflowObject, `${deviceId}-${event.timestamp}`).run({ deviceId, timestamp: event.timestamp, endTime: event.endTime });
 
       console.log(`Charging workflow submitted for device: ${deviceId}`);
       console.log(response);

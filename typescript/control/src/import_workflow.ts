@@ -53,7 +53,9 @@ const importWorkflow = restate.workflow({
     // --- Handler for validation events ---
     validate: async (ctx: restate.WorkflowSharedContext, event: ValidationEvent) => {
       console.log(`Received import validation event for device: ${event.deviceId}`);
-      await ctx.promise<ValidationEvent>("validation").resolve(event);
+      console.log(event);
+      const result = ctx.promise("validation").resolve(event);
+      console.log(result);
       
       return { status: 'success', message: 'Validation event processed' };
     },
