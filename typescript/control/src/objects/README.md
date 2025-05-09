@@ -12,10 +12,10 @@ curl -X POST http://localhost:9081/device/{deviceId}/control/send \
   -d '{
     "deviceId": "device-123",
     "deviceType": "myenergi",
-    "power": 1,
+    "type": "IMPORT",
     "timestamp": "2025-04-29T20:00:00Z",
-    "start": "2025-04-29T20:00:00Z",
-    "end": "2025-05-29T21:00:00Z"
+    "startTime": "2025-04-29T20:00:00Z",
+    "endTime": "2025-05-29T21:00:00Z"
   }'
 ```
 

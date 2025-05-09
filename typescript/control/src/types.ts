@@ -32,11 +32,14 @@ type ControlEvent = {
 
 export enum ControlEventType {
   IDLE = 'IDLE',
+  AWAITING_IDLE = 'AWAITING_IDLE',
   IMPORT = 'IMPORT',
-  EXPORT = 'EXPORT'
+  AWAITING_IMPORT = 'AWAITING_IMPORT',
+  EXPORT = 'EXPORT',
+  AWAITING_EXPORT = 'AWAITING_EXPORT'
 }
 
-export type IdleDeviceEvent = ControlEvent & {
+export type IdleDeviceEvent = Omit<ControlEvent, 'endTime'> & {
   type: ControlEventType.IDLE;
 }
 

@@ -13,6 +13,7 @@
     "start-device": "ts-node-dev --transpile-only src/objects/device_object.ts",
     "start-import": "ts-node-dev --transpile-only src/workflows/import_workflow.ts",
     "start-idle": "ts-node-dev --transpile-only src/workflows/idle_workflow.ts",
+    "start-simple": "ts-node-dev --transpile-only src/objects/device_state_machine.ts",
     "start-server": "rm -rf restate-data && npx restate-server",
     "start-all": "concurrently \"npm run start-parent-device\" \"npm run start-device\" \"npm run start-import\" \"npm run start-idle\""
   },
