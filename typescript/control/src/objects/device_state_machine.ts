@@ -1,5 +1,9 @@
 import * as restate from "@restatedev/restate-sdk";
 import { AmiEvent, AmiEventType, ControlEventType, DeviceState, IdleDeviceEvent, ImportDeviceEvent, PowerEventFromEventbridge } from "../types";
+import { ParentDeviceStateMachineObject } from "./parent_device_state_machine";
+
+const parentDeviceStateMachineObject: ParentDeviceStateMachineObject = { name: "parent-device-state-machine" };
+
 
 const publishToEventBridge = async (event: any) => {
   console.log('Publishing to EventBridge:', event);
@@ -28,6 +32,9 @@ const deviceStateMachineObject = restate.object({
       if(validationResult.type === AmiEventType.CLOUD_DEVICE_SUCCESSFUL_STOP_CHARGE) {
         ctx.set("status", ControlEventType.IDLE);
         console.log(`Device ${deviceId} is now IDLE`);
+        const { id: cancellationAwakeable } = ctx.awakeable<string>();
+        ctx.set("cancellationAwakeable", cancellationAwakeable);
+        return cancellationAwakeable;
       } else {
         throw new Error(`Device ${deviceId} failed to IDLE... retrying...`);
       }
@@ -36,6 +43,9 @@ const deviceStateMachineObject = restate.object({
     // TODO: If another event comes in, how do we stop the sleep & change state?
     import: async (ctx: restate.ObjectContext, event: ImportDeviceEvent) => {      
       const deviceId = ctx.key;  
+      const { id: validationId, promise: validationPromise } = ctx.awakeable<AmiEvent>();
+      const { id: cancellationAwakeable, promise: cancellationPromise } = ctx.awakeable<string>();
+      ctx.set("cancellationAwakeable", cancellationAwakeable);
       console.log(`IMPORT: ${event.deviceId}`);
       ctx.set("currentEventExecuting", event);
 
@@ -47,12 +57,11 @@ const deviceStateMachineObject = restate.object({
       await publishToEventBridge(event);
       ctx.set("status", ControlEventType.AWAITING_IMPORT);
 
-      const { id, promise } = ctx.awakeable<AmiEvent>();
-      console.log(`Validation awakeable id: ${id}`);
-      ctx.set("validationId", id);
-      const validationResult = await promise;
+      console.log(`Validation awakeable id: ${validationId}`);
+      ctx.set("validationId", validationId);
+      const validationResult = await restate.CombineablePromise.race([validationPromise, cancellationPromise]);
 
-      if(validationResult.type === AmiEventType.CLOUD_DEVICE_SUCCESSFUL_START_CHARGE) {
+      if(validationResult === AmiEventType.CLOUD_DEVICE_SUCCESSFUL_START_CHARGE) {
         console.log(`Device ${deviceId} is now IMPORTING`);
         ctx.set("status", ControlEventType.IMPORT);
 
@@ -73,6 +82,10 @@ const deviceStateMachineObject = restate.object({
           timestamp: new Date().toISOString(),
           startTime: new Date().toISOString()
         });
+
+        await cancellationPromise;
+      } else if(validationResult !== undefined) { 
+        console.log('cancelled');
       } else {
         throw new Error(`Device ${deviceId} failed to IMPORT... retrying...`);
       }
@@ -86,7 +99,7 @@ const deviceStateMachineObject = restate.object({
       // Note: ctx.key is the awakeable id
       console.log(`Received validation event for device: ${event.deviceId}`);
       ctx.resolveAwakeable<AmiEvent>(ctx.key, event);
-    },
+    }
   }
 });
 
